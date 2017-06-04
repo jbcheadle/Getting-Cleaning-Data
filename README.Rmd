@@ -1,0 +1,130 @@
+---
+title: "README"
+author: "John B Cheadle"
+date: "June 03, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+The purpose of the run_analysis.R script is to prepare a tidy data set for later analysis from raw accelerometer data.  The output of this script is an independent tidy data set with the average of each variable for each activity and each subject. This README covers sources of data, how the script works, and includes the run_analysis script at the end.
+
+<b>Note:</b> This script assumes the user is in their preferred working directory prior to execution of the script, but will download the raw data if it does not already exist.
+
+For more in-depth description of variables, refer to the Codebook.Rmd file also contained within this repo.
+
+## Raw Data
+All data can be downloaded from the following online source: https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip
+
+
+A full description of the data can be found at: http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones
+
+## Explanation of the Script
+The script was created to adhere to the review criteria set by Coursera for the Getting & Cleaning Data course project.
+
+### Downloading Raw Files
+Files are first downloaded from the URL above and placed into the working directory (which is saved to a variable, curr_dir, for later).  If these files already exist, they will not be re-downloaded, thus saving time.
+
+### Grabbing Descripitive Activity & Variable Names
+In the UCI HAR Dataset folder, the files 'activity_labels.txt' and 'features.txt' contain important header information for labeling columns - activity names and column headers, respectively.  These are assigned variables (activity_labels, features) for later use.
+
+### Creating the Train and Test Sets
+While the instructions specify to merge the train & test sets, it was easier to first create them separately.  Three files for each set (subject_test, y_test, X_test), containing the same row dimension, were merged using the cbind() command; the 561 features were given the names listed in the features.txt file extracted previously.  The subject and activity columns were named subject_id and activity, respectively. 
+
+### Merging the Train and Test Sets
+With all columns between tables having the same name, the tables are merged using a simple rbind() command.
+
+### Transforming the Activity Variable
+At this point the activity variable is just an integer, which is not descriptive.  This was converted to a factor with levels extracted previously from activity_labels.txt
+
+### Extracting Measurements on Mean and Standard Deviation for Each Measurement
+<b>Note:</b> The instruction here is slightly ambiguous; it was interpreted to mean that any measurement which contained the words 'mean' or 'std' was to be included.
+
+This was performed by filtering on any column that contained the words 'mean' or 'std' using a regular expression.  This regular expression also contains the name of the first 2 variables so that they are included in the pared down table.
+
+Finally, the column names were stripped of problematic characters (parenthesis and hyphens) to avoid issue with later code.
+
+### Creating a Second Independent Tidy Dataset
+The final instruction (step 5) is to create a second, independent tidy data set with the average of each variable for each activity and each subject.  This was accomplished using the dplyr package, specifically the function summarize_each() to get the mean of each column grouped by the subject_id and the activity.
+
+### Outputting tidy data
+The tidy data is written to a .txt file (tidy_set.txt) per the instructions.  We know this data is tidy because:
+1. The column headings are descriptive
+2. The variables are all in different columns
+3. There are no duplicate columns
+
+The proper way to read this tidy dataset back into R is, assuming the file is named 'tidy_data.txt' and exists in your current working directory:
+
+data <- read.table("tidy_set.txt", header=TRUE)
+
+View(data)
+
+## run_analysis.R code
+
+```{r}
+## Script for Getting & Cleaning Data Course Project
+## 
+## Briefly, this script takes test subject smartphone data obtained during exercise from
+## https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip
+## and outputs a tidy data set in .txt format containing the averages of the mean and 
+## std measurements for each subject performing each exercise.
+##
+## See README.Rmd for a more in-depth explanation of what this script performs.
+## See Codebook.Rmd for description of the variables (columns)
+
+## Load dplyr library for later analysis
+library(dplyr)
+
+## Download & Open Files
+## If files exist, do NOT overwrite, and suppress warnings
+curr_dir <- getwd()
+fileURL <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+if(!file.exists("accdata.zip")) download.file(fileURL, "./accdata.zip")
+suppressWarnings(unzip("accdata.zip",overwrite = FALSE))
+
+## Grabbing column data from instructional files
+setwd("./UCI HAR Dataset")
+activity_labels <- read.table("activity_labels.txt")
+features <- as.character(read.table("features.txt")[,2])
+
+## Create Training Set
+subject_train <- read.table("./train/subject_train.txt")
+y_train <- read.table("./train/y_train.txt")
+X_train <- read.table("./train/X_train.txt")
+combined_train <- cbind(subject_train,y_train,X_train)
+colnames(combined_train) <- c("subject_id","activity",features)
+
+## Create Test Set
+subject_test <- read.table("./test/subject_test.txt") 
+y_test <- read.table("./test/y_test.txt")
+X_test <- read.table("./test/X_test.txt")
+combined_test <- cbind(subject_test,y_test,X_test)
+colnames(combined_test) <- c("subject_id","activity",features)
+
+## Merge Training & Test Sets
+combined_sets <- rbind(combined_train,combined_test)
+
+## Convert activity (currently numeric) to factor with descriptive activity names
+combined_sets$activity <- factor(x=as.character(combined_sets$activity),
+                                 levels=activity_labels$V1,labels=activity_labels$V2)
+
+## Extract Measurements on mean & STD for each measurement
+## Get indices for "mean" and "std" (including first 2 columns) using pattern.  Subset on these indices.
+mean_std_sets <- combined_sets[,grepl(pattern="subject_id|activity|[Mm]ean|[Ss]td",
+                                      colnames(combined_sets))]
+
+## Rename column names to avoid problematic characters 
+colnames(mean_std_sets) <- gsub(pattern = "\\()|-",replacement = "",colnames(mean_std_sets))                             
+
+## Create data set with average (mean) of each variable for each activity and each subject using ddplyr
+mean_std_sets <- tbl_df(mean_std_sets)
+tidy_set <- mean_std_sets %>% group_by(subject_id, activity) %>% summarize_each(funs(mean))
+
+## Output tidy data set to initial working directory as text file (overwite if file exists)
+setwd(curr_dir)
+write.table(x = tidy_set,file="tidy_set.txt",row.name=FALSE)
+```
+
